@@ -1,13 +1,14 @@
 [tool.poetry]
-name = "griptape_reverse_string_tool"
+name = "spotify_griptape_tool"
 version = "0.1.0"
-description = "A Griptape tool for reversing strings."
-authors = ["Author Name <contact@example.com>"]
+description = "A Griptape tool for interacting with Spotify."
+authors = ["Matthew Vallillo <matt@griptape.ai>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
-griptape = "^0.20.0"
+griptape = { git="https://github.com/griptape-ai/griptape.git#dev" }
+spotipy = "^2.23.0"
 
 [tool.poetry.group.test]
 optional = true

@@ -1,12 +1,12 @@
 from griptape.artifacts import TextArtifact
-from reverse_string_tool import ReverseStringTool
+from spotify_griptape_tool.tool import SpotifyClient
 
 
 class TestReverseStringTool:
     def test_reverse_string(self):
         value = "some_value"
 
-        tool = ReverseStringTool()
+        tool = SpotifyClient()
 
         params = {"values": {"input": value}}
         result = tool.reverse_string(params)
