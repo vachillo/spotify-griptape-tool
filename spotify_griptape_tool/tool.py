@@ -13,36 +13,42 @@ from json import loads as to_dict
 
 @define
 class SpotifyClient(BaseTool):
-    client_id = field(type=str, default=Factory(lambda: os.environ.get("SPOTIFY_CLIENT_ID")))
-    client_secret = field(type=str, default=Factory(lambda: os.environ.get("SPOTIFY_CLIENT_SECRET")))
-    client = field(type=Spotify, default=None)
-    authorization_code = field(type=str, default=Factory(lambda: os.environ.get("SPOTIFY_AUTH_CODE")))
-    authorization_state = field(type=str, default=Factory(lambda: os.environ.get("SPOTIFY_AUTH_STATE")))
-    authorization_redirect_uri = field(type=str, default=Factory(lambda: os.environ.get("SPOTIFY_AUTH_REDIRECT_URI")))
+    client_id = field(type=str)
+    client_secret = field(type=str)
+    authorization_code = field(type=str, default=None)
+    authorization_state = field(type=str, default=None)
+    authorization_redirect_uri = field(type=str, default=None)
+    authorization_scopes = field(type=str, default=None)
     oauth_manager = field(type=SpotifyOAuth, default=None)
     user_token = field(type=str, default=None)
+    client = field(
+        type=Spotify,
+        default=Factory(
+            lambda self: Spotify(
+                auth=self.user_token, 
+                client_credentials_manager=SpotifyClientCredentials(
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                    cache_handler=MemoryCacheHandler()
+                )
+            ), 
+            takes_self=True
+        )
+    )
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
         if self.client_id is None or self.client_secret is None:
-            raise ValueError("SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET environment variables must be set")
-        if self.client is None:
-            self.client = Spotify(auth=self.user_token)
-            self.client.auth_manager = SpotifyClientCredentials(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                cache_handler=MemoryCacheHandler()
-            )
-            self.oauth_manager=SpotifyOAuth(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                redirect_uri=self.authorization_redirect_uri,
-                state=self.authorization_state,
-                scope="user-read-playback-state,playlist-modify-public,playlist-modify-private,playlist-read-private,playlist-read-collaborative,playlist-modify-public,playlist-modify-private,playlist-read-private,playlist-read-collaborative,user-library-read,user-library-modify,user-read-private,user-read-email,user-read-playback-state,user-modify-playback-state,user-read-currently-playing,user-read-recently-played,user-top-read"
-            )
-
+            raise ValueError("client_id and client_secret must be set")
+        self.oauth_manager=SpotifyOAuth(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            redirect_uri=self.authorization_redirect_uri,
+            state=self.authorization_state,
+            scope=self.authorization_scopes,
+        )
         if self.authorization_code is not None:
-            self.client._auth = self.oauth_manager.get_access_token(self.authorization_code, as_dict=False)
+            self.client.set_auth(self.oauth_manager.get_access_token(self.authorization_code, as_dict=False))
         
     ####################
     ###    ALBUMS    ###
