@@ -4,7 +4,7 @@ from textwrap import dedent
 from griptape.artifacts import TextArtifact, ErrorArtifact, ListArtifact
 from griptape.tools import BaseTool
 from griptape.utils.decorators import activity
-from schema import Schema, Literal
+from schema import Schema, Literal, Or, Optional
 from attr import define, field, Factory
 from spotipy import Spotify, SpotifyClientCredentials, SpotifyOAuth, SpotifyException, MemoryCacheHandler
 from urllib.parse import quote as url_encode
@@ -20,13 +20,14 @@ class SpotifyClient(BaseTool):
     authorization_state = field(type=str, default=Factory(lambda: os.environ.get("SPOTIFY_AUTH_STATE")))
     authorization_redirect_uri = field(type=str, default=Factory(lambda: os.environ.get("SPOTIFY_AUTH_REDIRECT_URI")))
     oauth_manager = field(type=SpotifyOAuth, default=None)
+    user_token = field(type=str, default=None)
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
         if self.client_id is None or self.client_secret is None:
             raise ValueError("SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET environment variables must be set")
         if self.client is None:
-            self.client = Spotify()
+            self.client = Spotify(auth=self.user_token)
             self.client.auth_manager = SpotifyClientCredentials(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -1065,9 +1066,218 @@ class SpotifyClient(BaseTool):
     ###    TRACKS     ###
     #####################
     
-    
-    
+    @activity(
+        config={
+            "description": "Can be used to get Spotify catalog information for a single track identified by its unique Spotify ID.",
+            "schema": Schema({
+                Literal("id", description=dedent("""
+                    The Spotify ID for the track.
+                    Spotify IDs are 22-character strings that start with sp.
+                """)): str,
+                Literal("market", description=dedent("""
+                    An ISO 3166-1 alpha-2 country code or the string from_token.
+                    Provide this parameter if you want to apply Track Relinking.
+                """)): str,
+            }),
+        }
+    )
+    def get_track(self, params: dict) -> TextArtifact | ErrorArtifact:
+        vals: dict = params.get("values")
+        id: str = vals.get("id")
+        market: str = vals.get("market", "US")
 
+        try:
+            result = self.client.track(id, market=market)
+            return TextArtifact(str(result))
+
+        except Exception as e:
+            return ErrorArtifact(str(e))
+    
+    @activity(
+        config={
+            "description": "Can be used to get Spotify catalog information for multiple tracks based on their Spotify IDs.",
+            "schema": Schema({
+                Literal("ids", description=dedent("""
+                    A list of the Spotify IDs for the tracks. Maximum: 50 IDs.
+                    Spotify IDs are 22-character strings that start with sp.
+                """)): list,
+                Literal("market", description=dedent("""
+                    An ISO 3166-1 alpha-2 country code or the string from_token.
+                    Provide this parameter if you want to apply Track Relinking.
+                """)): str,
+            }),
+        }
+    )
+    def get_tracks(self, params: dict) -> TextArtifact | ErrorArtifact:
+        vals: dict = params.get("values")
+        ids: list = vals.get("ids")
+        market: str = vals.get("market", "US")
+
+        try:
+            result = self.client.tracks(ids, market=market)
+            artifacts = list()
+            for track in result["tracks"]:
+                artifacts.append(TextArtifact(str(track)))
+            return ListArtifact(artifacts)
+
+        except Exception as e:
+            return ErrorArtifact(str(e))
         
-    def get_auth_response(self):
-        return f"Before anything else can be done, the user needs authorize the application. Return the url: {self.oauth_manager.get_authorize_url()} back as a response"
+    # user-library-read
+    @activity(
+        config={
+            "description": "Get a list of the songs saved in the current Spotify user's 'Your Music' library.",
+            "schema": Schema({
+                Literal("limit", description=dedent("""
+                    The maximum number of tracks to return. Default: 20. Minimum: 1. Maximum: 50.
+                """)): int,
+                Literal("offset", description=dedent("""
+                    The index of the first track to return. Default: 0 (the first object). Use with limit to get the next set of tracks.
+                """)): int,
+                Literal("market", description=dedent("""
+                    An ISO 3166-1 alpha-2 country code or the string from_token.
+                    Provide this parameter if you want to apply Track Relinking.
+                """)): str,
+            }),
+        }
+    )
+    def get_current_users_saved_tracks(self, params: dict) -> TextArtifact | ErrorArtifact:
+        vals: dict = params.get("values")
+        limit: int = vals.get("limit", 20)
+        offset: int = vals.get("offset", 0)
+        market: str = vals.get("market", "US")
+
+        try:
+            result = self.client.current_user_saved_tracks(limit=limit, offset=offset, market=market)
+            artifacts = list()
+            for track in result["items"]:
+                artifacts.append(TextArtifact(str(track)))
+            return ListArtifact(artifacts)
+
+        except Exception as e:
+            return ErrorArtifact(str(e))
+    
+    # user-library-modify
+    @activity(
+        config={
+            "description": "Can be used to save one or more tracks to the current user's 'Your Music' library.",
+            "schema": Schema({
+                Literal("ids", description=dedent("""
+                    A list of the Spotify IDs for the tracks. Maximum: 50 IDs.
+                    Spotify IDs are 22-character strings that start with sp.
+                """)): list,
+            }),
+        }
+    )
+    def save_tracks_for_user(self, params: dict) -> TextArtifact | ErrorArtifact:
+        vals: dict = params.get("values")
+        ids: list = vals.get("ids")
+
+        try:
+            self.client.current_user_saved_tracks_add(ids)
+            artifacts = list()
+            for id in ids:
+                artifacts.append(TextArtifact(f"Sucessfully saved track: {id} to user's library"))
+            return ListArtifact(artifacts)
+        
+        except Exception as e:
+            return ErrorArtifact(str(e))
+        
+    # user-library-modify
+    @activity(
+        config={
+            "description": "Can be used to remove one or more tracks from the current user's 'Your Music' library.",
+            "schema": Schema({
+                Literal("ids", description=dedent("""
+                    A list of the Spotify IDs for the tracks. Maximum: 50 IDs.
+                    Spotify IDs are 22-character strings that start with sp.
+                """)): list,
+            }),
+        }
+    )
+    def remove_tracks_for_user(self, params: dict) -> TextArtifact | ErrorArtifact:
+        vals: dict = params.get("values")
+        ids: list = vals.get("ids")
+
+        try:
+            self.client.current_user_saved_tracks_delete(ids)
+            artifacts = list()
+            for id in ids:
+                artifacts.append(TextArtifact(f"Sucessfully removed track: {id} from user's library"))
+            return ListArtifact(artifacts)
+        
+        except Exception as e:
+            return ErrorArtifact(str(e))
+        
+    # user-library-read
+    @activity(
+        config={
+            "description": "Can be used to check if one or more tracks is already saved in the current Spotify user's 'Your Music' library.",
+            "schema": Schema({
+                Literal("ids", description=dedent("""
+                    A list of the Spotify IDs for the tracks. Maximum: 50 IDs.
+                    Spotify IDs are 22-character strings that start with sp.
+                """)): list,
+            }),
+        }
+    )
+    def check_current_users_saved_tracks(self, params: dict) -> TextArtifact | ErrorArtifact:
+        vals: dict = params.get("values")
+        ids: list = vals.get("ids")
+
+        try:
+            result = self.client.current_user_saved_tracks_contains(ids)
+            artifacts = list()
+            for is_saved in result:
+                artifacts.append(TextArtifact(str(is_saved)))
+            return ListArtifact(artifacts)
+
+        except Exception as e:
+            return ErrorArtifact(str(e))
+        
+    @activity(
+        config={
+            "description": "Can be used to get audio features for multiple tracks based on their Spotify IDs.",
+            "schema": Schema({
+                Literal("id", description=dedent("""
+                    The Spotify IDs for the track.
+                    Spotify IDs are 22-character strings that start with sp.
+                """)): list,
+            }),
+        }
+    )
+    def get_audio_features(self, params: dict) -> TextArtifact | ErrorArtifact:
+        vals: dict = params.get("values")
+        ids: list = vals.get("ids")
+
+        try:
+            result = self.client.audio_features(ids)
+            artifacts = list()
+            for track in result["audio_features"]:
+                artifacts.append(TextArtifact(str(track)))
+            return ListArtifact(artifacts)
+
+        except Exception as e:
+            return ErrorArtifact(str(e))
+    
+    @activity(
+        config={
+            "description": "Can be used to get Spotify catalog information about a track's audio analysis.",
+            "schema": Schema({
+                Literal("id", description=dedent("""
+                    The Spotify ID for the track.
+                    Spotify IDs are 22-character strings that start with sp.
+                """)): str,
+            }),
+        }
+    )
+    def get_audio_analysis(self, params: dict) -> TextArtifact | ErrorArtifact:
+        vals: dict = params.get("values")
+        id: str = vals.get("id")
+
+        try:
+            result = self.client.audio_analysis(id)
+            return TextArtifact(str(result))
+
+        except Exception as e:
+            return ErrorArtifact(str(e))
